@@ -42,7 +42,7 @@ public class LoginController {
             User user = registerUserUseCase.execute(request);
             return new RegisterUserResponse(true, "Usuario registrado");
         } catch (IllegalArgumentException | IllegalStateException e) {
-            return new RegisterUserResponse(false, "Error al registrar el usuario");
+            return new RegisterUserResponse(false, e.getMessage());
         }
     }
 

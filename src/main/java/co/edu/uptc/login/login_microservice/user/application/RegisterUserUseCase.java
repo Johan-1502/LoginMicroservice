@@ -22,9 +22,9 @@ public class RegisterUserUseCase {
         UserId userId = UserId.of(request.getUserId());
 
         // Validar si ya existe
-        //if (userRepository.findByUserId(userId).isPresent()) {
-        //    throw new IllegalStateException("User already exists");
-        //}
+        if (userRepository.findByUserId(userId).isPresent()) {
+            throw new IllegalStateException("El id de usuario ya está en uso");
+        }
 
         Password password = Password.of(request.getPassword());
         User user = new User(userId, password);
