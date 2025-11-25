@@ -4,6 +4,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import co.edu.uptc.login.login_microservice.user.application.events.LoginAlertEvent;
+import co.edu.uptc.login.login_microservice.user.application.events.MfaRequiredEvent;
 import co.edu.uptc.login.login_microservice.user.application.events.UserLoggedInEvent;
 
 @Component
@@ -28,5 +29,9 @@ public class KafkaEventPublisher {
 
     public void publishLoginAlert(LoginAlertEvent event) {
         kafkaTemplate.send("user.login.alert", event);
+    }
+
+    public void publishMfaEvent(MfaRequiredEvent event) {
+        kafkaTemplate.send("user.mfa.required", event);
     }
 }
