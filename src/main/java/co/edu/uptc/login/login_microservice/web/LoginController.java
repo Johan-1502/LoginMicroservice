@@ -17,6 +17,11 @@ import co.edu.uptc.login.login_microservice.user.application.dto.VerifyMfaRespon
 import co.edu.uptc.login.login_microservice.user.application.mfa.MfaService;
 import co.edu.uptc.login.login_microservice.user.domain.User;
 import co.edu.uptc.login.login_microservice.user.insfrastructure.KafkaEventPublisher;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 
 @RestController
 @RequestMapping("/login")
@@ -28,7 +33,13 @@ public class LoginController {
     private final JwtService jwtService;
     private final KafkaEventPublisher eventPublisher;
 
-    public LoginController(RegisterUserUseCase registerUserUseCase, AuthUserUseCase authUserUseCase, MfaService mfaService,JwtService jwtService, KafkaEventPublisher eventPublisher) {
+    public LoginController(
+        RegisterUserUseCase registerUserUseCase,
+        AuthUserUseCase authUserUseCase,
+        MfaService mfaService,
+        JwtService jwtService,
+        KafkaEventPublisher eventPublisher
+    ) {
         this.registerUserUseCase = registerUserUseCase;
         this.authUserUseCase = authUserUseCase;
         this.mfaService = mfaService;
@@ -36,6 +47,19 @@ public class LoginController {
         this.eventPublisher = eventPublisher;
     }
 
+    // -------------------------------------------------------------------------
+    // CREATE USER
+    // -------------------------------------------------------------------------
+
+    @Operation(
+        summary = "Registrar un nuevo usuario",
+        description = "Crea un usuario nuevo en el sistema enviando correo, contraseña y otros datos requeridos."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Usuario registrado correctamente",
+            content = @Content(schema = @Schema(implementation = RegisterUserResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Datos inválidos")
+    })
     @PostMapping("/createuser")
     public RegisterUserResponse registerUser(@RequestBody RegisterUserRequest request) {
         try {
@@ -46,6 +70,19 @@ public class LoginController {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // AUTH USER
+    // -------------------------------------------------------------------------
+
+    @Operation(
+        summary = "Autenticar usuario",
+        description = "Valida credenciales del usuario y genera un token temporal si es necesario usar MFA."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Autenticación exitosa",
+            content = @Content(schema = @Schema(implementation = AuthUserResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Credenciales inválidas")
+    })
     @PostMapping("/authuser")
     public AuthUserResponse authUser(@RequestBody AuthUserRequest request) {
         try {
@@ -63,6 +100,19 @@ public class LoginController {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // VERIFY MFA
+    // -------------------------------------------------------------------------
+
+    @Operation(
+        summary = "Verificar código MFA",
+        description = "Verifica el código MFA enviado al usuario para completar el proceso de autenticación."
+    )
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "MFA verificado correctamente",
+            content = @Content(schema = @Schema(implementation = VerifyMfaResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Código MFA inválido")
+    })
     @PostMapping("/verify-mfa")
     public VerifyMfaResponse verifyMfa(@RequestBody VerifyMfaRequest request) {
 
