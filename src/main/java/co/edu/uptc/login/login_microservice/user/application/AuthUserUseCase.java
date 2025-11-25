@@ -3,6 +3,7 @@ package co.edu.uptc.login.login_microservice.user.application;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 
@@ -36,59 +37,67 @@ public class AuthUserUseCase {
     public AuthUserUseCase(
             UserRepository userRepository,
             KafkaEventPublisher eventPublisher,
-            MfaService mfaService) {
-        this.mfaService = mfaService;
+            MfaService mfaService
+    ) {
         this.userRepository = userRepository;
         this.eventPublisher = eventPublisher;
+        this.mfaService = mfaService;
     }
 
     public String execute(AuthUserRequest request) {
 
-        String userId = request.getUserId().toString();
+        // Siempre obtener el MISMO userId limpio
+        String userId = request.getUserId().toString();  // <-- Se usa EL MISMO para TODO
+
         LocalDateTime now = LocalDateTime.now();
 
         // ========================
-        // 1. VERIFICAR BLOQUEO
+        // 1. VERIFICAR SI ESTÁ BLOQUEADO
         // ========================
         if (lockedUsers.containsKey(userId)) {
-            LocalDateTime lockTime = lockedUsers.get(userId);
-            if (lockTime.isAfter(now)) {
-                long minutesLeft = java.time.Duration.between(now, lockTime).toMinutes();
+            LocalDateTime lockedUntil = lockedUsers.get(userId);
+
+            if (lockedUntil.isAfter(now)) {
+                long minutesLeft = java.time.Duration.between(now, lockedUntil).toMinutes();
                 throw new RuntimeException("Usuario bloqueado por " + minutesLeft + " minutos");
             } else {
-                // Se venció bloqueo → limpiar
+                // Desbloquear porque ya pasó el tiempo
                 lockedUsers.remove(userId);
                 failedAttempts.remove(userId);
             }
         }
 
         // ========================
-        // 2. USUARIO EXISTE
+        // 2. REVISAR SI USUARIO EXISTE
         // ========================
-        return userRepository.findByUserId(new UserId(request.getUserId()))
+        return userRepository.findByUserId(new UserId(Long.parseLong(userId)))
                 .map(user -> handleExistingUser(user, request, userId, now))
-                .orElseGet(() -> handleNonExistingUser(userId, now.toString()));
+                .orElseGet(() -> handleNonExistingUser(userId, now));
     }
 
+    // ==========================================================
+    // USUARIO EXISTE
+    // ==========================================================
     private String handleExistingUser(User user, AuthUserRequest request,
-                                      String userId, LocalDateTime now) {
+            String userId, LocalDateTime now) {
 
-        // Validar contraseña
+        // Contraseña incorrecta
         if (!user.getPassword().getValue().equals(request.getPassword())) {
 
             int attempts = failedAttempts.getOrDefault(userId, 0) + 1;
             failedAttempts.put(userId, attempts);
 
-            // 3 intentos → bloqueo + alerta Kafka
             if (attempts >= 3) {
 
+                // Bloquear 10 min
                 lockedUsers.put(userId, LocalDateTime.now().plusMinutes(10));
 
+                // Mandar alerta Kafka
                 eventPublisher.publishLoginAlert(
                         new LoginAlertEvent(
                                 userId,
                                 now.toString(),
-                                "LOGIN_USR_ATTEMPS_EXCEEDED"
+                                "LOGIN_USR_ATTEMPTS_EXCEEDED"
                         )
                 );
             }
@@ -96,7 +105,9 @@ public class AuthUserUseCase {
             return null;
         }
 
-        // Login correcto → resetear
+        // ========================
+        // Contraseña correcta
+        // ========================
         failedAttempts.remove(userId);
         lockedUsers.remove(userId);
 
@@ -107,20 +118,25 @@ public class AuthUserUseCase {
         return "MFA code sent";
     }
 
-    private String handleNonExistingUser(String userId, String now) {
+    // ==========================================================
+    // USUARIO NO EXISTE
+    // ==========================================================
+    private String handleNonExistingUser(String userId, LocalDateTime now) {
 
         int attempts = failedNotRegisteredAttempts.getOrDefault(userId, 0) + 1;
         failedNotRegisteredAttempts.put(userId, attempts);
 
-        // A partir del segundo intento → alerta
         if (attempts >= 2) {
-            eventPublisher.publishLoginAlert(
-                    new LoginAlertEvent(
-                            userId,
-                            now,
-                            "LOGIN_USR_NOT_REGISTERED"
-                    )
-            );
+            Optional<User> user = userRepository.findByUserId(new UserId(Long.parseLong(userId)));
+            if (user.isEmpty()) {
+                eventPublisher.publishLoginAlert(
+                        new LoginAlertEvent(
+                                userId,
+                                now.toString(),
+                                "LOGIN_USR_NOT_REGISTERED"
+                        )
+                );
+            }
         }
 
         return null;
