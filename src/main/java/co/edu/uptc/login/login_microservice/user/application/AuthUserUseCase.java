@@ -1,17 +1,16 @@
 package co.edu.uptc.login.login_microservice.user.application;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import co.edu.uptc.login.login_microservice.security.JwtService;
 import co.edu.uptc.login.login_microservice.user.application.dto.AuthUserRequest;
 import co.edu.uptc.login.login_microservice.user.application.events.LoginAlertEvent;
 import co.edu.uptc.login.login_microservice.user.application.events.MfaRequiredEvent;
-import co.edu.uptc.login.login_microservice.user.application.events.UserLoggedInEvent;
 import co.edu.uptc.login.login_microservice.user.application.mfa.MfaService;
+import co.edu.uptc.login.login_microservice.user.domain.User;
 import co.edu.uptc.login.login_microservice.user.domain.UserId;
 import co.edu.uptc.login.login_microservice.user.domain.UserRepository;
 import co.edu.uptc.login.login_microservice.user.insfrastructure.KafkaEventPublisher;
@@ -22,92 +21,108 @@ import jakarta.transaction.Transactional;
 public class AuthUserUseCase {
 
     private final UserRepository userRepository;
-    private final JwtService jwtService;
     private final KafkaEventPublisher eventPublisher;
     private final MfaService mfaService;
 
-    // Contadores en memoria
+    // Intentos fallidos de usuarios existentes
     private final Map<String, Integer> failedAttempts = new HashMap<>();
+
+    // Intentos fallidos de usuarios NO registrados
     private final Map<String, Integer> failedNotRegisteredAttempts = new HashMap<>();
+
+    // Usuarios bloqueados (por 10 minutos)
+    private final Map<String, LocalDateTime> lockedUsers = new HashMap<>();
 
     public AuthUserUseCase(
             UserRepository userRepository,
-            JwtService jwtService,
             KafkaEventPublisher eventPublisher,
-        MfaService mfaService) {
+            MfaService mfaService) {
         this.mfaService = mfaService;
         this.userRepository = userRepository;
-        this.jwtService = jwtService;
         this.eventPublisher = eventPublisher;
     }
 
     public String execute(AuthUserRequest request) {
 
         String userId = request.getUserId().toString();
-        String now = java.time.LocalDateTime.now().toString();
+        LocalDateTime now = LocalDateTime.now();
 
+        // ========================
+        // 1. VERIFICAR BLOQUEO
+        // ========================
+        if (lockedUsers.containsKey(userId)) {
+            LocalDateTime lockTime = lockedUsers.get(userId);
+            if (lockTime.isAfter(now)) {
+                long minutesLeft = java.time.Duration.between(now, lockTime).toMinutes();
+                throw new RuntimeException("Usuario bloqueado por " + minutesLeft + " minutos");
+            } else {
+                // Se venció bloqueo → limpiar
+                lockedUsers.remove(userId);
+                failedAttempts.remove(userId);
+            }
+        }
+
+        // ========================
+        // 2. USUARIO EXISTE
+        // ========================
         return userRepository.findByUserId(new UserId(request.getUserId()))
-                .map(user -> {
-                    // ===== Usuario existe =====
+                .map(user -> handleExistingUser(user, request, userId, now))
+                .orElseGet(() -> handleNonExistingUser(userId, now.toString()));
+    }
 
-                    // Validar contraseña
-                    if (!user.getPassword().getValue().equals(request.getPassword())) {
-                        int attempts = failedAttempts.getOrDefault(userId, 0) + 1;
-                        failedAttempts.put(userId, attempts);
+    private String handleExistingUser(User user, AuthUserRequest request,
+                                      String userId, LocalDateTime now) {
 
-                        if (attempts >= 3) {
-                            eventPublisher.publishLoginAlert(
-                                    new LoginAlertEvent(
-                                            userId,
-                                            now,
-                                            "LOGIN_USR_ATTEMPS_EXCEEDED"
-                                    )
-                            );
-                        }
+        // Validar contraseña
+        if (!user.getPassword().getValue().equals(request.getPassword())) {
 
-                        return null;
-                    }
+            int attempts = failedAttempts.getOrDefault(userId, 0) + 1;
+            failedAttempts.put(userId, attempts);
 
-                    // Login correcto → limpiar intentos
-                    failedAttempts.remove(userId);
-                    failedNotRegisteredAttempts.remove(userId);
+            // 3 intentos → bloqueo + alerta Kafka
+            if (attempts >= 3) {
 
-                    // Generar token
-                    //String token = jwtService.generateToken(userId);
-//
-                    //// Publicar evento normal
-                //eventPublisher.publishUserLoggedIn(
-                //    new UserLoggedInEvent(
-                //        userId,
-                //        now
-                //    )
-                //);
-//
-                //return token;
-                String code = mfaService.generateCode(user.getId().value().toString());
+                lockedUsers.put(userId, LocalDateTime.now().plusMinutes(10));
 
-                // enviar evento kafka "user.mfa.required"
-                    eventPublisher.publishMfaEvent(new MfaRequiredEvent(userId, code));
+                eventPublisher.publishLoginAlert(
+                        new LoginAlertEvent(
+                                userId,
+                                now.toString(),
+                                "LOGIN_USR_ATTEMPS_EXCEEDED"
+                        )
+                );
+            }
 
-                    return "MFA code sent";
-                })
-                .orElseGet(() -> {
+            return null;
+        }
 
-                    // ===== Usuario NO existe =====
-                    int attempts = failedNotRegisteredAttempts.getOrDefault(userId, 0) + 1;
-                    failedNotRegisteredAttempts.put(userId, attempts);
+        // Login correcto → resetear
+        failedAttempts.remove(userId);
+        lockedUsers.remove(userId);
 
-                    if (attempts >= 2) {
-                        eventPublisher.publishLoginAlert(
-                                new LoginAlertEvent(
-                                        userId,
-                                        now,
-                                        "LOGIN_USR_NOT_REGISTERED"
-                                )
-                        );
-                    }
+        // Enviar MFA
+        String code = mfaService.generateCode(user.getId().value().toString());
+        eventPublisher.publishMfaEvent(new MfaRequiredEvent(userId, code));
 
-                    return null;
-                });
+        return "MFA code sent";
+    }
+
+    private String handleNonExistingUser(String userId, String now) {
+
+        int attempts = failedNotRegisteredAttempts.getOrDefault(userId, 0) + 1;
+        failedNotRegisteredAttempts.put(userId, attempts);
+
+        // A partir del segundo intento → alerta
+        if (attempts >= 2) {
+            eventPublisher.publishLoginAlert(
+                    new LoginAlertEvent(
+                            userId,
+                            now,
+                            "LOGIN_USR_NOT_REGISTERED"
+                    )
+            );
+        }
+
+        return null;
     }
 }

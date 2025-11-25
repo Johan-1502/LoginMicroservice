@@ -1,9 +1,5 @@
 package co.edu.uptc.login.login_microservice.web;
 
-import java.time.LocalDateTime;
-
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,7 +14,6 @@ import co.edu.uptc.login.login_microservice.user.application.dto.RegisterUserReq
 import co.edu.uptc.login.login_microservice.user.application.dto.RegisterUserResponse;
 import co.edu.uptc.login.login_microservice.user.application.dto.VerifyMfaRequest;
 import co.edu.uptc.login.login_microservice.user.application.dto.VerifyMfaResponse;
-import co.edu.uptc.login.login_microservice.user.application.events.UserLoggedInEvent;
 import co.edu.uptc.login.login_microservice.user.application.mfa.MfaService;
 import co.edu.uptc.login.login_microservice.user.domain.User;
 import co.edu.uptc.login.login_microservice.user.insfrastructure.KafkaEventPublisher;
@@ -64,7 +59,7 @@ public class LoginController {
 
         } catch (Exception e) {
             System.err.println(e);
-            return new AuthUserResponse(false, "Error al autenticar el usuario", null);
+            return new AuthUserResponse(false, e.getMessage(), null);
         }
     }
 

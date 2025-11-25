@@ -1,8 +1,5 @@
 package co.edu.uptc.login.login_microservice.user.domain;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-
 import co.edu.uptc.login.login_microservice.shared.domain.AggregateRoot;
 
 public class User extends AggregateRoot<UserId> {
