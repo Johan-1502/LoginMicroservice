@@ -11,35 +11,33 @@ import java.util.Arrays;
 @Configuration
 public class CorsConfig {
 
-    @Bean
-    public CorsFilter corsFilter() {
+        @Bean
+        public CorsFilter corsFilter() {
 
-        CorsConfiguration config = new CorsConfiguration();
+                CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowCredentials(true);
+                config.setAllowCredentials(true);
 
-        config.setAllowedOrigins(Arrays.asList(
-                "http://localhost:4200"
-        ));
+                config.setAllowedOrigins(Arrays.asList(
+                                "http://localhost:4200",
+                                "http://localhost:8080"));
 
-        config.setAllowedHeaders(Arrays.asList(
-                "Origin",
-                "Content-Type",
-                "Accept",
-                "Authorization"
-        ));
+                config.setAllowedHeaders(Arrays.asList(
+                                "Origin",
+                                "Content-Type",
+                                "Accept",
+                                "Authorization"));
 
-        config.setAllowedMethods(Arrays.asList(
-                "GET",
-                "POST",
-                "PUT",
-                "DELETE",
-                "OPTIONS"
-        ));
+                config.setAllowedMethods(Arrays.asList(
+                                "GET",
+                                "POST",
+                                "PUT",
+                                "DELETE",
+                                "OPTIONS"));
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/**", config);
 
-        return new CorsFilter(source);
-    }
+                return new CorsFilter(source);
+        }
 }
